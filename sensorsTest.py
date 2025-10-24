@@ -8,6 +8,8 @@ MiniSdk.set_robot_type(MiniSdk.RobotType.EDU)
 
 ROBOT_ID = "412"
 SEARCH_TIMEOUT = 10
+POLL_INTERVAL = 1.0  # как часто читать сенсор (сек)
+OBSTACLE_METHOD = "get_distance_front"  # заменить на свой метод, если в SDK другой
 
 class Robot:
     def __init__(self, device: WiFiDevice):
@@ -42,19 +44,52 @@ async def enter_programming_mode():
     except Exception as e:
         print(f"[X] Error entering programming mode: {e}")
 
-# === 🦿 Step 4: Walk Forward ===
+# === 🦿 Walk Forward ===
 async def walk_forward(steps: int = 10):
     try:
         print(f"[→] Walking forward {steps} steps...")
         for _ in range(steps):
-            # Выполняем встроенное действие напрямую
             await MiniSdk.run_action("walk_forward")
         print("[✓] Walk complete")
     except Exception as e:
         print(f"[X] Error walking forward: {e}")
 
+# === 🚨 Sensor Test ===
+async def sensor_poll_loop():
+    """Цикл для теста расстояния до препятствия"""
+    print("[info] Starting obstacle distance test. Ctrl+C to stop.")
+    while True:
+        distance = None
+        try:
+            # Попытка вызвать метод SDK
+            if hasattr(MiniSdk, OBSTACLE_METHOD):
+                func = getattr(MiniSdk, OBSTACLE_METHOD)
+                if asyncio.iscoroutinefunction(func):
+                    distance = await func()
+                else:
+                    distance = func()
+            else:
+                print(f"[X] Method {OBSTACLE_METHOD} not found in SDK")
+        except Exception as e:
+            print(f"[X] Error reading sensor: {e}")
+
+        if distance is not None:
+            print(f"[🔍] Distance ahead: {distance} cm")
+        else:
+            print("[🔍] No distance reading available")
+
+        await asyncio.sleep(POLL_INTERVAL)
+
 async def shutdown_robot():
     print("[✓] Finished robot session")
+    try:
+        await MiniSdk.quit_program()
+    except:
+        pass
+    try:
+        await MiniSdk.release()
+    except:
+        pass
 
 async def main():
     device = await search_device_by_name(ROBOT_ID, SEARCH_TIMEOUT)
@@ -68,8 +103,14 @@ async def main():
         return
 
     await enter_programming_mode()
-    await walk_forward(10)
+
+    # Запускаем тест сенсора (только чтение расстояния)
+    await sensor_poll_loop()
+
     await shutdown_robot()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[!] Program interrupted by user.")
